@@ -1,0 +1,24 @@
+version = 1
+prefix = ".skills-sync"
+targets = [".agents/skills"]
+
+[sources.anthropic]
+repo = "https://github.com/anthropics/skills.git"
+ref = "main"
+skills = ["skills/pdf", "skills/docx"]
+# patches = ["patches/pdf.patch"]
+# rename = { "skills/pdf" = "my-pdf" }
+
+# '*' finds all skill directories recursively, including buried subdirectories.
+# [sources.team]
+# repo = "git@github.com:my-team/monorepo.git"
+# skills = ["*"]
+
+# [sources.plugins]
+# repo = "https://github.com/my-team/plugins.git"
+# skills = ["plugins/*/skills/**"]
+
+# Local directories are snapshotted and content-hashed.
+# [sources.personal]
+# path = "./personal-skills"
+# skills = ["*"]
