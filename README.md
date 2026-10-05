@@ -151,10 +151,7 @@ externally during recovery, recovery stops and retains the journal for inspectio
 
 ## Maintain patches
 
-Patches are standard `git diff` files relative to the source root. They are applied
-in the listed order to a fresh snapshot, using `git apply --check` followed by
-`git apply`. They are never committed to the upstream mirror and are never
-reapplied on top of an already patched tree.
+Git patches are standard `git diff` files relative to the source root, applied using `git apply --check` followed by `git apply`. Files ending in `.skillpatch.toml` instead use version-1 scoped Markdown operations. Both formats apply in the listed order to a fresh snapshot and contribute raw-byte hashes to the lockfile. They never modify the upstream mirror or replay on an already patched tree.
 
 For example, in a separate clone checked out at the locked commit:
 
@@ -167,6 +164,24 @@ Declare the patch in `patches`, then run `sync`. Review and commit the resulting
 lockfile. If an update no longer accepts a patch, update fails before installed
 links or the lockfile change. Refresh the patch against the new upstream revision
 and retry `update`. Include newly added files in the diff using `git add -N` first.
+
+### Scoped Markdown patches
+
+```sh
+cp ~/.agents/skills/pdf/SKILL.md ./edited-SKILL.md
+# Edit the ordinary copy, not the installed symlink.
+skills-sync patch generate documents skills/pdf/SKILL.md ./edited-SKILL.md \
+  --output patches/pdf.skillpatch.toml
+# Append this path to documents.patches, then:
+skills-sync sync --dry-run
+skills-sync sync
+```
+
+Generation requires a current lock and reconstructs its already-patched baseline offline. It prints the revision, existing patch hashes, document hash, and operation scopes. Edited and output paths resolve from your working directory. Document paths are source-relative. Generation may populate snapshots but never installs, updates the lock or manifest, fetches, or recovers an interrupted transaction. Output must be new and outside the prefix and installation targets. Create its parent directory first. Manifest checks use the same parsed-manifest fingerprint as locked sync, with raw input stability checked during generation.
+
+Only `replace_text` and `insert_section` are supported. Sentence operations, regex operations, and unknown fields fail. Generation emits exact-count literal edits and verifies serialized replay byte-for-byte. Ambiguous edits, formatting changes, and changes to protected content fail with Git-patch guidance. Prose whitespace can normalize during application. Headings and protected syntax never become replacement targets. Phrases cannot cross formatting delimiters. Paragraphs and list items containing inline HTML are entirely protected. Markdown documents and skill-patch files are limited to 1 MiB, with at most 256 operations. Diff discovery is bounded to 1,048,576 scalar-LCS cells after trimming unchanged ends. Larger edits may require a Git patch.
+
+Section insertion follows an anchor's complete subtree at the same heading level. Its canonical ATX heading has a blank line before its raw body. Separators use LF or CRLF deterministically. Mixed endings fail. Noncanonical section additions can require a Git patch. Normal sync prints rule counts, including explicitly allowed zero matches. Dry run also prints document diffs.
 
 ## Boundaries
 
@@ -185,7 +200,7 @@ this installer. Paths must be valid UTF-8.
 ## Development
 
 ```sh
-cargo test --locked
+cargo nextest run --locked
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo build --release --locked

@@ -39,6 +39,8 @@ fn all_skills() -> Vec<String> {
 }
 
 pub struct Loaded {
+    pub manifest_path: PathBuf,
+    pub manifest_bytes: Vec<u8>,
     pub manifest: Manifest,
     pub base: PathBuf,
     pub prefix: PathBuf,
@@ -54,8 +56,9 @@ impl Loaded {
             .parent()
             .context("manifest has no parent")?
             .to_path_buf();
+        let manifest_bytes = fs::read(&path)?;
         let manifest: Manifest =
-            toml::from_str(&fs::read_to_string(&path)?).context("invalid manifest")?;
+            toml::from_str(std::str::from_utf8(&manifest_bytes)?).context("invalid manifest")?;
         if manifest.version != 1 {
             bail!("unsupported manifest version {}", manifest.version);
         }
@@ -118,6 +121,8 @@ impl Loaded {
             }
         }
         Ok(Self {
+            manifest_path: path,
+            manifest_bytes,
             manifest,
             base,
             prefix,

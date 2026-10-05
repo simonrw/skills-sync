@@ -1,4 +1,7 @@
 mod config;
+mod generation;
+mod lock;
+mod patch;
 mod source;
 mod sync;
 mod util;
@@ -39,10 +42,26 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Generate a verified scoped Markdown patch from the locked effective source.
+    Patch {
+        #[command(subcommand)]
+        command: PatchCommands,
+    },
     /// Show the last successfully installed skills and their upstream origins.
     List {
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum PatchCommands {
+    Generate {
+        source: String,
+        file: PathBuf,
+        edited: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
     },
 }
 
@@ -77,6 +96,15 @@ fn run() -> Result<()> {
                 update: Some(sources),
             },
         ),
+        Commands::Patch {
+            command:
+                PatchCommands::Generate {
+                    source,
+                    file,
+                    edited,
+                    output,
+                },
+        } => generation::run(&config, &source, &file, &edited, &output),
         Commands::List { json } => sync::list(&config, json),
         Commands::Init => unreachable!(),
     }

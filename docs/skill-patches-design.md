@@ -1,6 +1,20 @@
 # Skill patch generation
 
-Design proposal, not an implemented feature.
+Design proposal with the first delivery slice implemented. Later-operation semantics below remain proposals.
+
+## Implementation status
+
+Delivered: strict version-1 `replace_text` and `insert_section`, ordered mixed Git and Markdown stacks, raw patch hashes, operation counts, dry-run document diffs, and `patch generate SOURCE FILE EDITED --output PATH`. Generation reconstructs and compares the complete locked effective source offline, serializes and parses the candidate again, and requires exact edited bytes before exclusive output creation. It does not install, fetch, recover transactions, or modify the manifest, lockfile, or installation state. Snapshot cache population is allowed.
+
+The engine uses transient pulldown-cmark offset events, a private heading outline, and normalized literal source maps rather than an AST or persistent document graph. Structure and protected-byte comparisons guard edits. Generation discovers local changed prose windows with minimal unique context and canonical added sections. All semantics stay behind the file-level patch engine.
+
+Conservative limits: 1 MiB Markdown documents and skill-patch files, 256 operations, 16 MiB matching and structural work, and 32 contextual expansion attempts. Diff discovery uses deterministic Unicode-scalar LCS after trimming equal ends, with a checked 1,048,576-cell allocation cap. Intersecting word-expanded windows coalesce. Independent edits remain separate operations, with fresh replay and parsing between them. Oversized or ambiguous edits fail with Git-patch advice.
+
+Matches cannot cross formatting, escaping, entities, hard breaks, or prose-block boundaries. YAML frontmatter, code, HTML, heading text, and link destinations are protected. A paragraph or list item with inline HTML is protected wholesale, including its ordinary surrounding text. Generation may refuse ambiguous repeated prose, removed or added blocks, moved or renamed existing sections, whitespace-only edits, and noncanonical insertion separators. Application still follows scoped prose after section movement and rewrapping. Insertion uses deterministic LF or CRLF rendering, refuses mixed endings, and checks deeper body headings and retained structure. Generation never widens a count or invents a policy to account for duplicate text.
+
+Legacy lock compatibility uses the existing fingerprint of the parsed manifest and ordered raw patches, not an unavailable historical raw-manifest hash. Captured manifest, patch, and lock bytes are rechecked during generation. Resolved output ancestors exclude manifest and lock aliases, the prefix cache, and current and prior installed targets. These checks are ordinary local-work safeguards, not protection from hostile filesystem races.
+
+Deferred: `remove_sentence`, `replace_sentence`, all regex and matcher policies, sentence segmentation, and refreshing existing patches. These operation names are rejected clearly. They are never partially interpreted. Their examples and verification goals below describe future work, not current capabilities.
 
 ## Problem
 
@@ -8,11 +22,11 @@ Users edit a copy of an upstream skill and want to keep those edits across upstr
 
 The design must distinguish matching the same edit despite formatting changes from applying a policy to new upstream content. An edited document provides evidence for the first, but cannot establish the second.
 
-## Current behavior
+## Original behavior
 
 `src/main.rs` dispatches sync and update commands through `sync::run`. `src/config.rs` stores an ordered list of patch paths per source.
 
-`source::patches` in `src/source.rs` reads patch bytes and hashes them. `source::prepare` resolves a Git revision or copies a local source, creates a temporary tree, and applies each patch with `git apply --check` followed by `git apply`. It validates the resulting tree, discovers skills, and stores an immutable snapshot.
+Originally, `source::patches` in `src/source.rs` read patch bytes and hashed them. `source::prepare` resolved a Git revision or copied a local source, created a temporary tree, and applied each patch with `git apply --check` followed by `git apply`. It validated the resulting tree, discovered skills, and stored an immutable snapshot. The delivered slice captures stacks through `source::load_patch_inputs` and dispatches both formats through `patch::apply_file` within that same snapshot pipeline.
 
 `sync::run` prepares every source and checks the installation plan before changing links or the lockfile. `ordered_patches_are_hashed_and_failure_is_safe` in `tests/cli.rs` covers ordered application, patch hashing, and unchanged installed content and lockfile after patch failure.
 

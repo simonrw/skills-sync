@@ -1,7 +1,7 @@
 use crate::{
     config::Loaded,
-    source::{self, LockedSource},
-    util,
+    lock::{self, LockFile},
+    source, util,
 };
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
@@ -18,13 +18,6 @@ pub struct Options {
     pub offline: bool,
     pub dry_run: bool,
     pub update: Option<Vec<String>>,
-}
-
-#[derive(Default, Deserialize, Serialize, PartialEq, Eq)]
-struct LockFile {
-    version: u32,
-    manifest_sha256: String,
-    sources: BTreeMap<String, LockedSource>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -71,10 +64,7 @@ pub fn run(config: &Loaded, options: Options) -> Result<()> {
         ..State::default()
     });
     validate_state(config, &previous)?;
-    let old: Option<LockFile> = read_toml(&config.lock)?;
-    if old.as_ref().is_some_and(|l| l.version != 1) {
-        bail!("unsupported lockfile version");
-    }
+    let old = lock::read(config)?;
     if let Some(ids) = &options.update {
         for id in ids {
             if !config.manifest.sources.contains_key(id) {
@@ -82,33 +72,17 @@ pub fn run(config: &Loaded, options: Options) -> Result<()> {
             }
         }
     }
-    let patch_hashes = config
-        .manifest
-        .sources
-        .iter()
-        .map(|(id, source)| {
-            Ok((
-                id.clone(),
-                source::patches(config, source)?
-                    .into_iter()
-                    .map(|(p, _)| p)
-                    .collect::<Vec<_>>(),
-            ))
-        })
-        .collect::<Result<BTreeMap<_, _>>>()?;
-    let fingerprint = util::json_hash(&(&config.manifest, patch_hashes))?;
+    let inputs = source::load_patch_inputs(config)?;
+    let fingerprint = lock::fingerprint(config, &inputs)?;
     if options.locked
         && old
             .as_ref()
-            .is_none_or(|l| l.manifest_sha256 != fingerprint)
+            .is_none_or(|l| !l.matches_manifest(&fingerprint))
     {
         bail!("lockfile is missing or manifest/patches changed; run sync without --locked and review the lockfile");
     }
-    let mut lock = LockFile {
-        version: 1,
-        manifest_sha256: fingerprint,
-        sources: BTreeMap::new(),
-    };
+    let mut lock = LockFile::new(fingerprint);
+    let mut reports = Vec::new();
     let mut next = State {
         version: 1,
         owner: config.lock.clone(),
@@ -126,9 +100,10 @@ pub fn run(config: &Loaded, options: Options) -> Result<()> {
             config,
             id,
             spec,
-            old.as_ref().and_then(|l| l.sources.get(id)),
+            old.as_ref().and_then(|l| l.source(id)),
             update,
             options.offline,
+            &inputs[id],
         )
         .with_context(|| format!("preparing source {id}"))?;
         for (path, name) in &prepared.locked.skills {
@@ -152,13 +127,17 @@ pub fn run(config: &Loaded, options: Options) -> Result<()> {
                 destination,
             });
         }
-        lock.sources.insert(id.clone(), prepared.locked);
+        reports.extend(prepared.reports);
+        lock.insert(id.clone(), prepared.locked);
     }
     if options.locked && old.as_ref() != Some(&lock) {
         bail!("resolved skills or local source content differs from the lockfile; run sync without --locked");
     }
     // Validate the whole plan before touching any installed link.
     preflight(&previous.links, &next.links)?;
+    for report in &reports {
+        report.print(options.dry_run);
+    }
     let mut changes = 0;
     for path in union(&previous.links, &next.links) {
         let actual = current_link(&path)?;
@@ -362,11 +341,6 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
         })
         .transpose()
 }
-fn read_toml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
-    read_optional(path)?
-        .map(|s| toml::from_str(&s).with_context(|| format!("invalid lockfile {}", path.display())))
-        .transpose()
-}
 
 pub fn list(config: &Loaded, json: bool) -> Result<()> {
     if config.prefix.join("transaction.json").exists() {
@@ -386,4 +360,12 @@ pub fn list(config: &Loaded, json: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn installed_targets(config: &Loaded) -> Result<Vec<PathBuf>> {
+    let Some(state): Option<State> = read_json(&config.prefix.join("state.json"))? else {
+        return Ok(Vec::new());
+    };
+    validate_state(config, &state)?;
+    Ok(state.targets)
 }

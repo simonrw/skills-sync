@@ -1,6 +1,6 @@
 use crate::{
     config::{Loaded, Source},
-    util,
+    patch, util,
 };
 use anyhow::{bail, Context, Result};
 use globset::GlobBuilder;
@@ -34,25 +34,63 @@ pub struct LockedSource {
 pub struct Prepared {
     pub locked: LockedSource,
     pub tree: PathBuf,
+    pub reports: Vec<patch::PatchReport>,
 }
 
-pub fn patches(config: &Loaded, source: &Source) -> Result<Vec<(Patch, Vec<u8>)>> {
-    source
-        .patches
+pub struct PatchInput {
+    pub info: Patch,
+    pub bytes: Vec<u8>,
+}
+pub type PatchInputs = BTreeMap<String, Vec<PatchInput>>;
+
+pub fn load_patch_inputs(config: &Loaded) -> Result<PatchInputs> {
+    config
+        .manifest
+        .sources
         .iter()
-        .map(|path| {
-            let full = util::absolute(&config.base, path)?;
-            let bytes =
-                fs::read(&full).with_context(|| format!("reading patch {}", full.display()))?;
-            Ok((
-                Patch {
-                    path: path.clone(),
-                    sha256: util::hash(&bytes),
-                },
-                bytes,
-            ))
+        .map(|(id, source)| {
+            let stack = source
+                .patches
+                .iter()
+                .map(|path| {
+                    let full = util::absolute(&config.base, path)?;
+                    let bytes = if path.to_string_lossy().ends_with(".skillpatch.toml") {
+                        patch::read_bounded(&full)?
+                    } else {
+                        fs::read(&full)
+                            .with_context(|| format!("reading patch {}", full.display()))?
+                    };
+                    Ok(PatchInput {
+                        info: Patch {
+                            path: path.clone(),
+                            sha256: util::hash(&bytes),
+                        },
+                        bytes,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            Ok((id.clone(), stack))
         })
         .collect()
+}
+
+pub fn locked_baseline(
+    config: &Loaded,
+    id: &str,
+    lock: &crate::lock::LockFile,
+    inputs: &PatchInputs,
+) -> Result<Prepared> {
+    let spec = config
+        .manifest
+        .sources
+        .get(id)
+        .with_context(|| format!("unknown source ID {id:?}"))?;
+    let old = lock.source(id).context("source missing from lockfile")?;
+    let prepared = prepare(config, id, spec, Some(old), false, true, &inputs[id])?;
+    if prepared.locked != *old {
+        bail!("resolved skills, local source content or effective tree differs from the lockfile; run sync and review the lockfile");
+    }
+    Ok(prepared)
 }
 
 pub fn prepare(
@@ -62,11 +100,11 @@ pub fn prepare(
     old: Option<&LockedSource>,
     update: bool,
     offline: bool,
+    patch_data: &[PatchInput],
 ) -> Result<Prepared> {
-    let patch_data = patches(config, source)?;
     let patch_info = patch_data
         .iter()
-        .map(|(p, _)| p.clone())
+        .map(|p| p.info.clone())
         .collect::<Vec<_>>();
     let store = config.prefix.join("sources").join(id);
     fs::create_dir_all(&store)?;
@@ -162,17 +200,16 @@ pub fn prepare(
     validate_links(&tree)?;
     // Initialize an isolated index so git apply does not discover an enclosing repo.
     util::git(Some(&tree), &["init", "--quiet"])?;
-    for (patch, bytes) in &patch_data {
-        let file = tempfile::NamedTempFile::new_in(temp.path())?;
-        fs::write(file.path(), bytes)?;
-        let path = util::path_str(file.path())?;
-        util::git(Some(&tree), &["apply", "--check", "--", path]).with_context(|| {
-            format!(
-                "patch {} does not apply to {id}@{revision}",
-                patch.path.display()
-            )
-        })?;
-        util::git(Some(&tree), &["apply", "--", path])?;
+    let mut reports = Vec::new();
+    for input in patch_data {
+        reports.push(
+            patch::apply_file(&tree, &input.info.path, &input.bytes).with_context(|| {
+                format!(
+                    "patch {} does not apply to {id}@{revision}",
+                    input.info.path.display()
+                )
+            })?,
+        );
     }
     fs::remove_dir_all(tree.join(".git"))?;
     validate_links(&tree)?;
@@ -212,6 +249,7 @@ pub fn prepare(
     Ok(Prepared {
         locked,
         tree: destination.join("tree"),
+        reports,
     })
 }
 
@@ -224,7 +262,9 @@ fn validate_revision(commit: &str) -> Result<()> {
 
 fn mirror(config: &Loaded, upstream: &str, offline: bool) -> Result<PathBuf> {
     let cache = config.prefix.join("repos");
-    fs::create_dir_all(&cache)?;
+    if !offline {
+        fs::create_dir_all(&cache)?;
+    }
     let path = cache.join(format!("{}.git", util::hash(upstream.as_bytes())));
     if !path.exists() {
         if offline {
