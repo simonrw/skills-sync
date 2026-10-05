@@ -17,14 +17,12 @@ skills-sync init
 skills-sync sync
 ```
 
-Commit `skills.toml`, `skills.lock`, and your patches. Ignore the prefix and agent
-skill directories; they can be reconstructed from the manifest and lockfile.
+Commit `skills.toml`, `skills.lock`, and your patches. Ignore the agent skill directories and any project-local prefix override; they can be reconstructed from the manifest and lockfile.
 
 ## Declare your skills
 
 ```toml
 version = 1
-prefix = "~/.local/share/skills-sync"
 targets = ["~/.agents/skills", "~/.claude/skills"]
 
 [sources.documents]
@@ -114,6 +112,12 @@ links, state, and lockfile unchanged. Any pending interrupted transaction is
 recovered first, including during a dry run.
 
 ## Prefix layout and ownership
+
+When `prefix` is omitted, installation state and source snapshots live in `$XDG_STATE_HOME/skills-sync/<manifest-hash>`. If `XDG_STATE_HOME` is unset, empty, or relative, the default is `$HOME/.local/state/skills-sync/<manifest-hash>`. Each manifest gets a separate prefix, keyed by the SHA-256 hash of its canonical absolute path. Moving the manifest changes its default prefix.
+
+An explicit `prefix` overrides this default. Relative overrides still resolve from the manifest directory. `skills-sync init` leaves `prefix` unset. Existing manifests with `prefix = ".skills-sync"` keep their project-local storage.
+
+The default does not migrate an existing installation. If an older manifest omitted `prefix`, add `prefix = ".skills-sync"` to keep using its existing state. Changing the prefix does not transfer ownership of existing target symlinks.
 
 ```text
 <prefix>/

@@ -11,13 +11,32 @@ use std::{
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub version: u32,
-    #[serde(default = "default_prefix")]
-    pub prefix: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<PathBuf>,
     pub targets: Vec<PathBuf>,
     pub sources: BTreeMap<String, Source>,
 }
-fn default_prefix() -> PathBuf {
-    ".skills-sync".into()
+fn default_prefix(manifest_path: &Path) -> Result<PathBuf> {
+    let root = match std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+    {
+        Some(root) => root,
+        None => {
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .filter(|path| path.is_absolute())
+                .context("HOME must be a nonempty absolute path when XDG_STATE_HOME is unset, empty, or relative")?;
+            home.join(".local/state")
+        }
+    };
+    let prefix = root
+        .join("skills-sync")
+        .join(util::hash(util::path_str(manifest_path)?.as_bytes()));
+    util::resolved_path(
+        manifest_path.parent().context("manifest has no parent")?,
+        &prefix,
+    )
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -65,7 +84,10 @@ impl Loaded {
         if manifest.targets.is_empty() {
             bail!("at least one target is required");
         }
-        let prefix = util::resolved_path(&base, &manifest.prefix)?;
+        let prefix = match &manifest.prefix {
+            Some(prefix) => util::resolved_path(&base, prefix)?,
+            None => default_prefix(&path)?,
+        };
         let targets = manifest
             .targets
             .iter()

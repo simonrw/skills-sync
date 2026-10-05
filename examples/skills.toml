@@ -1,5 +1,4 @@
 version = 1
-prefix = ".skills-sync"
 targets = [".agents/skills"]
 
 [sources.anthropic]
