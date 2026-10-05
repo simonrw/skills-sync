@@ -282,8 +282,10 @@ fn recovery_restores_an_interrupted_transaction() {
         serde_json::from_slice(&fs::read(f.project.join("store/state.json")).unwrap()).unwrap();
     let lock = f.lock();
     let mut after = before.clone();
-    let link = f.project.join("target-a/alpha");
-    let changed = f.project.join("store/sources/fake/tree");
+    let project = fs::canonicalize(&f.project).unwrap();
+    let link = project.join("target-a/alpha");
+    let changed = project.join("store/sources/fake/tree");
+    assert!(before["links"].get(link.to_str().unwrap()).is_some());
     after["links"][link.to_str().unwrap()] = serde_json::json!(changed);
     fs::remove_file(&link).unwrap();
     std::os::unix::fs::symlink(&changed, &link).unwrap();
