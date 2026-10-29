@@ -14,6 +14,8 @@ pub struct Manifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prefix: Option<PathBuf>,
     pub targets: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<String>,
     pub sources: BTreeMap<String, Source>,
 }
 fn default_prefix(manifest_path: &Path) -> Result<PathBuf> {
@@ -83,6 +85,11 @@ impl Loaded {
         }
         if manifest.targets.is_empty() {
             bail!("at least one target is required");
+        }
+        for (index, command) in manifest.commands.iter().enumerate() {
+            if command.trim().is_empty() || command.contains('\0') {
+                bail!("command {} must not be blank or contain NUL", index + 1);
+            }
         }
         let prefix = match &manifest.prefix {
             Some(prefix) => util::resolved_path(&base, prefix)?,

@@ -1,8 +1,9 @@
 #![cfg(unix)]
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
 };
 use tempfile::TempDir;
 
@@ -37,6 +38,16 @@ impl Fixture {
     fn manifest(&self, selectors: &str, extra: &str) {
         write(&self.project.join("skills.toml"), &format!(
             "version = 1\nprefix = 'store'\ntargets = ['target-a', 'target-b']\n[sources.tools]\nrepo = '{}'\nref = 'main'\nskills = {selectors}\n{extra}\n", self.repo.display()));
+    }
+    fn commands(&self, commands: &[&str]) {
+        let path = self.project.join("skills.toml");
+        let mut manifest: toml::Value =
+            toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        manifest
+            .as_table_mut()
+            .unwrap()
+            .insert("commands".into(), toml::Value::try_from(commands).unwrap());
+        write(&path, &toml::to_string(&manifest).unwrap());
     }
     fn cli(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_skills-sync"))
@@ -98,6 +109,282 @@ fn git(path: &Path, args: &[&str]) {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn commands_preserve_legacy_locks_and_reject_locked_edits() {
+    use sha2::{Digest, Sha256};
+
+    let f = Fixture::new();
+    write(
+        &f.project.join("skills.toml"),
+        "version = 1\nprefix = 'store'\ntargets = ['target-a']\n[sources]\n",
+    );
+    // Keep the pre-commands serialization shape independent of the current manifest type.
+    let legacy = br#"[{"version":1,"prefix":"store","targets":["target-a"],"sources":{}},{}]"#;
+    let fingerprint = format!("{:x}", Sha256::digest(legacy));
+    let lock = format!("version = 1\nmanifest_sha256 = '{fingerprint}'\n[sources]\n");
+    write(&f.project.join("skills.lock"), &lock);
+    f.ok(&["sync", "--locked", "--offline"]);
+    f.commands(&[]);
+    f.ok(&["sync", "--locked", "--offline"]);
+    assert_eq!(f.lock(), lock.as_bytes());
+
+    f.commands(&["printf a >> ran", "printf b >> ran"]);
+    f.fail(&["sync", "--locked"], "manifest/patches changed");
+    assert!(!f.project.join("ran").exists());
+    f.ok(&["sync"]);
+    let lock = f.lock();
+    write(&f.project.join("ran"), "");
+    for commands in [
+        vec!["printf a >> ran", "printf b >> ran", "printf c >> ran"],
+        vec!["printf c >> ran", "printf b >> ran"],
+        vec![" printf a >> ran", "printf b >> ran"],
+        vec!["printf b >> ran", "printf a >> ran"],
+        vec![],
+    ] {
+        f.commands(&commands);
+        f.fail(&["sync", "--locked"], "manifest/patches changed");
+        assert_eq!(fs::read_to_string(f.project.join("ran")).unwrap(), "");
+        assert_eq!(f.lock(), lock);
+    }
+}
+
+#[test]
+fn init_leaves_install_commands_disabled() {
+    let f = Fixture::new();
+    f.ok(&["init"]);
+    let text = fs::read_to_string(f.project.join("skills.toml")).unwrap();
+    let manifest: toml::Value = toml::from_str(&text).unwrap();
+    assert!(manifest.get("commands").is_none());
+    let enabled = text.replace("# commands =", "commands =");
+    let manifest: toml::Value = toml::from_str(&enabled).unwrap();
+    assert_eq!(
+        manifest["commands"][0].as_str(),
+        Some("rex skill setup --agent pi --force")
+    );
+}
+
+#[test]
+fn commands_run_after_commit_with_manifest_cwd_and_inherited_streams() {
+    let f = Fixture::new();
+    f.manifest("['plugins/tools/skills/alpha']", "");
+    f.commands(&[
+        r#"set -eu
+test "$(cat target-a/alpha/SKILL.md)" = 'alpha v1'
+test -f skills.lock
+test -f store/state.json
+test ! -e store/transaction.json
+IFS= read -r line
+printf '%s|%s' "$line" "$SKILLS_SYNC_TEST_VALUE" > observed
+printf 'installer stdout\n'
+printf 'installer stderr\n' >&2
+export SKILLS_SYNC_TEST_VALUE=changed
+cd /"#,
+        r#"set -eu
+test "$(cat observed)" = 'hello|from caller'
+test "$SKILLS_SYNC_TEST_VALUE" = 'from caller'
+printf '|second' >> observed"#,
+    ]);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_skills-sync"))
+        .current_dir(f.temp.path())
+        .arg("--manifest")
+        .arg(f.project.join("skills.toml"))
+        .arg("sync")
+        .env("SKILLS_SYNC_TEST_VALUE", "from caller")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"hello\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(f.project.join("observed")).unwrap(),
+        "hello|from caller|second"
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("installer stdout"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("installer stderr"));
+}
+
+#[test]
+fn commands_are_only_previewed_during_dry_runs() {
+    let f = Fixture::new();
+    f.manifest("['*']", "");
+    f.commands(&["touch first", "touch second"]);
+    for args in [vec!["sync", "--dry-run"], vec!["update", "--dry-run"]] {
+        let output = f.ok(&args);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.find("touch first").unwrap() < stdout.find("touch second").unwrap());
+        assert!(!f.project.join("first").exists());
+        assert!(!f.project.join("second").exists());
+        assert!(!f.project.join("skills.lock").exists());
+        assert!(!f.project.join("store/state.json").exists());
+        assert!(!f.project.join("target-a").exists());
+    }
+}
+
+#[test]
+fn commands_repeat_on_sync_and_update_but_not_list_or_patch_generation() {
+    let f = Fixture::new();
+    f.manifest("['plugins/tools/skills/alpha']", "");
+    f.commands(&["printf x >> runs"]);
+    f.ok(&["sync"]);
+    let lock = f.lock();
+    let unchanged = f.ok(&["sync"]);
+    assert!(String::from_utf8_lossy(&unchanged.stdout).contains("0 link changes"));
+    f.ok(&["sync", "--locked", "--offline"]);
+    assert_eq!(f.lock(), lock);
+    assert_eq!(fs::read_to_string(f.project.join("runs")).unwrap(), "xxx");
+
+    f.commit_alpha("alpha v2\n");
+    f.ok(&["update", "tools"]);
+    assert_eq!(f.content("alpha"), "alpha v2\n");
+    f.commit_alpha("alpha v3\n");
+    f.ok(&["update"]);
+    assert_eq!(f.content("alpha"), "alpha v3\n");
+    assert_eq!(fs::read_to_string(f.project.join("runs")).unwrap(), "xxxxx");
+
+    f.ok(&["list", "--json"]);
+    write(&f.project.join("edited.md"), "alpha custom\n");
+    f.ok(&[
+        "patch",
+        "generate",
+        "tools",
+        "plugins/tools/skills/alpha/SKILL.md",
+        "edited.md",
+        "--output",
+        "out.skillpatch.toml",
+    ]);
+    assert!(f.project.join("out.skillpatch.toml").exists());
+    assert_eq!(fs::read_to_string(f.project.join("runs")).unwrap(), "xxxxx");
+
+    write(
+        &f.project.join("skills.toml"),
+        "version = 1\nprefix = 'store'\ntargets = ['target-a']\ncommands = ['printf x >> runs']\n[sources]\n",
+    );
+    f.ok(&["sync"]);
+    f.ok(&["update"]);
+    assert_eq!(
+        fs::read_to_string(f.project.join("runs")).unwrap(),
+        "xxxxxxx"
+    );
+    assert!(!f.project.join("target-a/alpha").exists());
+}
+
+#[test]
+fn command_failure_keeps_the_installation_and_retry_starts_from_first_command() {
+    let f = Fixture::new();
+    f.manifest("['plugins/tools/skills/alpha']", "");
+    f.ok(&["sync"]);
+    let old_lock = f.lock();
+    let old_state = fs::read(f.project.join("store/state.json")).unwrap();
+    f.commit_alpha("alpha v2\n");
+    f.commands(&["printf x >> runs", "test -f allow || exit 7", "touch third"]);
+    let output = f.cli(&["update"]);
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("command 2"));
+    assert!(error.contains("exit status: 7"));
+    assert!(error.contains("test -f allow || exit 7"));
+    assert!(error.contains("managed installation remains committed"));
+    assert_eq!(f.content("alpha"), "alpha v2\n");
+    assert_ne!(f.lock(), old_lock);
+    assert_ne!(
+        fs::read(f.project.join("store/state.json")).unwrap(),
+        old_state
+    );
+    assert!(!f.project.join("store/transaction.json").exists());
+    assert_eq!(fs::read_to_string(f.project.join("runs")).unwrap(), "x");
+    assert!(!f.project.join("third").exists());
+    f.ok(&["list", "--json"]);
+
+    let lock = f.lock();
+    write(&f.project.join("allow"), "");
+    f.ok(&["sync", "--locked", "--offline"]);
+    assert_eq!(fs::read_to_string(f.project.join("runs")).unwrap(), "xx");
+    assert!(f.project.join("third").exists());
+    assert_eq!(f.lock(), lock);
+    assert_eq!(f.content("alpha"), "alpha v2\n");
+}
+
+#[test]
+fn commands_wait_for_reconciliation_and_keep_the_prefix_locked() {
+    let f = Fixture::new();
+    f.manifest("['plugins/tools/skills/alpha']", "");
+    f.commands(&["touch ran"]);
+    write(&f.project.join("target-a/alpha"), "unmanaged");
+    f.fail(&["sync"], "refusing to overwrite unmanaged");
+    assert!(!f.project.join("ran").exists());
+    assert!(!f.project.join("skills.lock").exists());
+    fs::remove_file(f.project.join("target-a/alpha")).unwrap();
+
+    f.commands(&["\"$SKILLS_SYNC_TEST_BIN\" sync", "touch ran"]);
+    let output = Command::new(env!("CARGO_BIN_EXE_skills-sync"))
+        .current_dir(&f.project)
+        .env("SKILLS_SYNC_TEST_BIN", env!("CARGO_BIN_EXE_skills-sync"))
+        .arg("sync")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("another sync is already running"));
+    assert!(!f.project.join("ran").exists());
+    assert_eq!(f.content("alpha"), "alpha v1\n");
+    assert!(!f.project.join("store/transaction.json").exists());
+}
+
+#[test]
+fn command_outputs_are_not_listed_or_removed_with_the_declaration() {
+    let f = Fixture::new();
+    f.manifest("['plugins/tools/skills/alpha']", "");
+    f.commands(&["mkdir -p target-a/external && printf external > target-a/external/SKILL.md"]);
+    f.ok(&["sync"]);
+    f.manifest("['plugins/tools/skills/alpha']", "");
+    f.ok(&["sync"]);
+    assert_eq!(f.content("external"), "external");
+    let output = f.ok(&["list", "--json"]);
+    let skills: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let names: Vec<_> = skills
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|skill| skill["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["alpha"]);
+}
+
+#[test]
+fn command_declarations_validate_before_installation() {
+    let f = Fixture::new();
+    for commands in ["", "commands = []\n", "commands = [':']\n"] {
+        f.manifest("['*']", "");
+        let path = f.project.join("skills.toml");
+        let manifest = fs::read_to_string(&path).unwrap();
+        write(&path, &format!("{commands}{manifest}"));
+        f.ok(&["sync", "--dry-run"]);
+    }
+    for commands in [
+        "['touch ran', '']",
+        "['touch ran', '   ']",
+        r#"['touch ran', "\u0000"]"#,
+        "['touch ran', 42]",
+    ] {
+        f.manifest("['*']", "");
+        let path = f.project.join("skills.toml");
+        let manifest = fs::read_to_string(&path).unwrap();
+        write(&path, &format!("commands = {commands}\n{manifest}"));
+        let output = f.cli(&["sync"]);
+        assert!(!output.status.success(), "{commands}");
+        assert!(!f.project.join("ran").exists());
+        assert!(!f.project.join("skills.lock").exists());
+        assert!(!f.project.join("target-a").exists());
+        assert!(!f.project.join("store/state.json").exists());
+    }
 }
 
 #[test]
