@@ -78,11 +78,39 @@ install names accept ASCII letters, digits, `.`, `_`, and `-` (except `.` and `.
 To uninstall an entire source, remove its table. To uninstall everything, retain
 your settings and an empty `[sources]` table.
 
+### Custom install commands
+
+For tools that install their own skills, add a top-level `commands` array before any TOML tables:
+
+```toml
+version = 1
+targets = ["~/.pi/agent/skills"]
+commands = ["rex skill setup --agent pi --force"]
+
+[sources]
+```
+
+Commands can accompany Git or local sources. For commands alone, keep at least one target and an empty `[sources]` table as above. Omit `commands` or use `commands = []` to disable execution. Entries must be nonblank strings without NUL characters.
+
+Command strings and their order contribute to the manifest fingerprint. After changing them, run ordinary sync before using `--locked`. Existing lockfiles remain valid when commands are omitted or empty.
+
+Sync and update run all commands in declaration order after committing managed links, state, and the lockfile. Commands run even with zero link changes, with `--locked` or `--offline`, and when update selects only some sources. Validation or installation failures prevent command execution. List, init, and patch generation never execute them. Dry runs print the commands without executing them.
+
+Each command runs in a separate `/bin/sh -c` process from the canonical manifest directory, inheriting your environment and standard input, output, and error. Use POSIX shell syntax, not interactive-shell aliases or functions. Directory changes and exported variables do not carry over to the next command. The shell's final status determines success, without an implicit `set -e`. The prefix remains locked until commands finish, so a nested sync against the same prefix fails its lock check.
+
+`--offline` prevents skills-sync from fetching Git objects. It does not restrict network access by custom commands.
+
+Only configure commands you trust. They execute arbitrary code with your permissions, without sandboxing or timeouts. The lockfile records their declaration, but does not pin the external executables or their outputs. Use commands that are safe to repeat.
+
+If a command cannot run or exits unsuccessfully, skills-sync reports the command and available status, stops subsequent commands, and exits with an error. Managed links, state, and the lockfile remain committed. Earlier command effects are not rolled back. The next sync or update starts again with the first command, not the failed one.
+
+Command-created files are not tracked, shown by `skills-sync list`, or automatically removed. Removing a command only stops future execution. Do not let commands overwrite managed links, cached snapshots, or state files. Use distinct skill names for external installations that share a target directory.
+
 ## Commands
 
 ```sh
 skills-sync sync                  # Reconcile, reusing locked Git commits
-skills-sync sync --dry-run        # Resolve/validate and print proposed link changes
+skills-sync sync --dry-run        # Preview link changes and custom commands
 skills-sync sync --locked         # Fail if manifest, patches, local trees or selections changed
 skills-sync sync --locked --offline
 skills-sync update               # Advance every Git source and sync
@@ -198,8 +226,9 @@ cannot overlap the prefix or target directories.
 Git snapshots come from `git archive` and honor committed `export-ignore` and
 `export-subst` attributes. Submodules are rejected: declare each submodule as its
 own source. Git LFS objects are not downloaded; archives contain their committed
-pointer files. Skills' frontmatter and scripts are not executed or validated by
-this installer. Paths must be valid UTF-8.
+pointer files.
+
+Skills' frontmatter and scripts discovered in source snapshots are not executed or validated by this installer. Only explicit manifest `commands` run as described above. Paths must be valid UTF-8.
 
 ## Development
 

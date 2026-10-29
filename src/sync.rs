@@ -11,6 +11,7 @@ use std::{
     fs,
     io::ErrorKind,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 pub struct Options {
@@ -153,6 +154,9 @@ pub fn run(config: &Loaded, options: Options) -> Result<()> {
         }
     }
     if options.dry_run {
+        for (index, command) in config.manifest.commands.iter().enumerate() {
+            println!("Would run command {}: {command}", index + 1);
+        }
         println!(
             "Dry run: {} skills, {changes} link changes; lockfile and installed links unchanged",
             next.skills.len()
@@ -186,11 +190,29 @@ pub fn run(config: &Loaded, options: Options) -> Result<()> {
         }
         return Err(error.context("sync failed; previous installation restored"));
     }
+    run_commands(config)
+        .context("post-sync command failed; managed installation remains committed")?;
     println!(
         "Synced {} skills to {} targets ({changes} link changes)",
         next.skills.len(),
         config.targets.len()
     );
+    Ok(())
+}
+
+fn run_commands(config: &Loaded) -> Result<()> {
+    for (index, command) in config.manifest.commands.iter().enumerate() {
+        let number = index + 1;
+        eprintln!("Running command {number}: {command}");
+        let status = Command::new("/bin/sh")
+            .args(["-c", command])
+            .current_dir(&config.base)
+            .status()
+            .with_context(|| format!("running command {number}: {command}"))?;
+        if !status.success() {
+            bail!("command {number} failed ({status}): {command}");
+        }
+    }
     Ok(())
 }
 
