@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"syscall"
@@ -341,6 +342,9 @@ func syncRun(c *Loaded, o Options) error {
 		}
 	}
 	if o.DryRun {
+		for i, command := range c.Manifest.Commands {
+			fmt.Printf("Would run command %d: %s\n", i+1, command)
+		}
 		fmt.Printf("Dry run: %d skills, %d link changes; lockfile and installed links unchanged\n", len(next.Skills), changes)
 		return nil
 	}
@@ -373,9 +377,31 @@ func syncRun(c *Loaded, o Options) error {
 		}
 		return fmt.Errorf("sync failed; previous installation restored: %w", err)
 	}
+	if err := runCommands(c); err != nil {
+		return fmt.Errorf("post-sync command failed; managed installation remains committed: %w", err)
+	}
 	fmt.Printf("Synced %d skills to %d targets (%d link changes)\n", len(next.Skills), len(c.Targets), changes)
 	return nil
 }
+func runCommands(c *Loaded) error {
+	for i, command := range c.Manifest.Commands {
+		fmt.Fprintf(os.Stderr, "Running command %d: %s\n", i+1, command)
+		cmd := exec.Command("/bin/sh", "-c", command)
+		cmd.Dir = c.Base
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() >= 0 {
+				return fmt.Errorf("command %d failed (exit status: %d): %s", i+1, exit.ExitCode(), command)
+			}
+			return fmt.Errorf("running command %d: %s: %w", i+1, command, err)
+		}
+	}
+	return nil
+}
+
 func list(c *Loaded, jsonOutput bool) error {
 	if exists(filepath.Join(c.Prefix, "transaction.json")) {
 		return fmt.Errorf("interrupted transaction; run sync to recover before listing")

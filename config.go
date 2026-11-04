@@ -12,10 +12,11 @@ import (
 )
 
 type Manifest struct {
-	Version uint32            `toml:"version" json:"version"`
-	Prefix  *string           `toml:"prefix" json:"prefix,omitempty"`
-	Targets []string          `toml:"targets" json:"targets"`
-	Sources map[string]Source `toml:"sources" json:"sources"`
+	Version  uint32            `toml:"version" json:"version"`
+	Prefix   *string           `toml:"prefix" json:"prefix,omitempty"`
+	Targets  []string          `toml:"targets" json:"targets"`
+	Commands []string          `toml:"commands" json:"commands,omitempty"`
+	Sources  map[string]Source `toml:"sources" json:"sources"`
 }
 type Source struct {
 	Repo      *string           `toml:"repo" json:"repo"`
@@ -61,6 +62,11 @@ func loadConfig(path string) (*Loaded, error) {
 	}
 	if len(m.Targets) == 0 {
 		return nil, fmt.Errorf("at least one target is required")
+	}
+	for i, command := range m.Commands {
+		if strings.TrimSpace(command) == "" || strings.ContainsRune(command, '\x00') {
+			return nil, fmt.Errorf("command %d must not be blank or contain NUL", i+1)
+		}
 	}
 	if m.Sources == nil {
 		var raw map[string]any

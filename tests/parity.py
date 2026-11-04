@@ -101,6 +101,39 @@ class Parity(unittest.TestCase):
             self.run_cli('sync')
         self.compare(scenario)
 
+    def test_commands_lifecycle(self):
+        def scenario():
+            self.write('local/alpha/SKILL.md', 'alpha\n')
+            source = "[sources.x]\npath = 'local'"
+            self.manifest(source)
+            self.run_cli('sync')
+            self.manifest('commands = []\n' + source)
+            self.run_cli('sync', '--locked', '--offline')
+
+            commands = "commands = ['printf a >> runs', 'printf b >> runs']\n"
+            self.manifest(commands + source)
+            self.run_cli('sync', '--locked', success=False)
+            self.run_cli('sync', '--dry-run')
+            self.run_cli('update', '--dry-run')
+            self.run_cli('sync')
+            self.run_cli('sync', '--locked', '--offline')
+            self.run_cli('update', 'x')
+            self.run_cli('list', '--json')
+
+            for changed in [commands.replace('printf b', 'printf c'), "commands = ['printf b >> runs', 'printf a >> runs']\n", 'commands = []\n']:
+                self.manifest(changed + source)
+                self.run_cli('sync', '--locked', success=False)
+
+            self.manifest("commands = ['printf x >> runs', 'test -f allow || exit 7', 'touch third']\n" + source)
+            self.run_cli('sync', success=False)
+            self.write('allow', '')
+            self.run_cli('sync', '--locked', '--offline')
+
+            self.manifest(commands + '[sources]')
+            self.run_cli('sync')
+            self.run_cli('update')
+        self.compare(scenario)
+
     def git(self, *args):
         result = subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgSign=false', *args], cwd=self.root / 'upstream', env=self.env, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
