@@ -1,3 +1,7 @@
+/skills-sync
 /target
+/tests/reference/rust/target
+/tests/__pycache__
+/.scratch
 /.skills-sync/
 /.agents/

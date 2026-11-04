@@ -38,7 +38,10 @@ impl Fixture {
     }
 
     fn command(&self, manifest: &Path) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_skills-sync"));
+        let mut command = Command::new(
+            std::env::var_os("SKILLS_SYNC_BIN")
+                .unwrap_or_else(|| env!("CARGO_BIN_EXE_skills-sync").into()),
+        );
         command
             .current_dir(self.temp.path())
             .env("HOME", self.temp.path().join("home"))

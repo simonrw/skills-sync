@@ -1,6 +1,6 @@
 # Skill patch generation
 
-Design proposal with the first delivery slice implemented. Later-operation semantics below remain proposals.
+Historical Rust design proposal with the first delivery slice implemented. Later-operation semantics below remain proposals. Rust paths below now live under `tests/reference/rust`. The Go rewrite implements the same contract in `patch.go`, `markdown.go`, and `generation.go`, using Goldmark source ranges and Unicode 17 word boundaries; Rust remains the differential-test oracle.
 
 ## Implementation status
 

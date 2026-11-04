@@ -7,6 +7,10 @@ use std::{
 };
 use tempfile::TempDir;
 
+fn cli_binary() -> std::ffi::OsString {
+    std::env::var_os("SKILLS_SYNC_BIN").unwrap_or_else(|| env!("CARGO_BIN_EXE_skills-sync").into())
+}
+
 struct Fixture {
     temp: TempDir,
     repo: PathBuf,
@@ -50,7 +54,7 @@ impl Fixture {
         write(&path, &toml::to_string(&manifest).unwrap());
     }
     fn cli(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_skills-sync"))
+        Command::new(cli_binary())
             .current_dir(&self.project)
             .args(args)
             .output()
@@ -595,7 +599,7 @@ fn relative_paths_resolve_from_manifest_and_init_does_not_overwrite() {
     f.ok(&["init"]);
     f.fail(&["init"], "creating");
     f.manifest("['plugins/tools/skills/alpha']", "");
-    let output = Command::new(env!("CARGO_BIN_EXE_skills-sync"))
+    let output = Command::new(cli_binary())
         .current_dir(f.temp.path())
         .args([
             "--manifest",
@@ -1143,7 +1147,7 @@ fn generation_cwd_paths_lock_membership_and_no_installation_state_required() {
     fs::create_dir(&elsewhere).unwrap();
     write(&elsewhere.join("edited.md"), "alpha custom\n");
     let lock = f.lock();
-    let output = Command::new(env!("CARGO_BIN_EXE_skills-sync"))
+    let output = Command::new(cli_binary())
         .current_dir(&elsewhere)
         .args([
             "--manifest",

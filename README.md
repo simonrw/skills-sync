@@ -1,17 +1,13 @@
 # skills-sync
 
-A declarative Rust CLI for managing a chosen set of agent skills. Declare sources
-and paths once; sync adds, updates, and removes managed symlinks to match that
-declaration. Git sources stay at their locked commits until you explicitly update
-them. Local patches and local directories are hashed too.
+A declarative Go CLI for managing a chosen set of agent skills. Declare sources and paths once; sync adds, updates, and removes managed symlinks to match that declaration. Git sources stay at their locked commits until you explicitly update them. Local patches and local directories are hashed too.
 
 ## Install
 
-Requires Rust 1.88+ and Git on PATH. Linux and macOS are supported; Windows is
-currently untested and not supported.
+Requires Go 1.23+ and Git on PATH. Linux and macOS are supported; Windows is not supported.
 
 ```sh
-cargo install --path . --locked
+go install .
 skills-sync init
 # Edit skills.toml, then:
 skills-sync sync
@@ -233,12 +229,32 @@ Skills' frontmatter and scripts discovered in source snapshots are not executed 
 ## Development
 
 ```sh
-cargo nextest run --locked
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo build --release --locked
+go test ./...
+go test -race ./...
+go vet ./...
+go build .
 ```
 
-The integration tests create real temporary Git repositories and invoke the CLI.
-They require no network and cover locked replay, updates, nested discovery,
-patches, pruning, conflicting files, local snapshots, and crash recovery.
+The integration tests build and invoke the CLI in temporary directories, using real local Git repositories without network access. Normal development requires no Rust toolchain.
+
+### Rust compatibility oracle
+
+The original Rust implementation is retained in `tests/reference/rust`. The Go implementation preserves its manifest fingerprints, lockfile serialization, snapshot addresses, state files, and installed symlinks. Existing installations need no migration.
+
+`tests/parity.py` runs both executables sequentially at identical absolute paths inside disposable fixtures. It compares exit status, successful stdout, lockfile and generated patch bytes, state, snapshot contents, executable bits, directories, and symlink destinations after each command. Git mirrors are excluded from byte comparison because Git stores incidental metadata there. Failure diagnostics are checked by the original integration tests where applicable, rather than requiring identical OS/library error wording.
+
+```sh
+# Build the reference, then locate its executable without assuming a Cargo target directory.
+cargo build --locked --manifest-path tests/reference/rust/Cargo.toml
+reference_target=$(cargo metadata --format-version 1 --no-deps \\
+  --manifest-path tests/reference/rust/Cargo.toml | \\
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')
+SKILLS_SYNC_RUST="$reference_target/debug/skills-sync" go test -count=1 ./...
+
+# Run the original integration tests against the Go executable.
+go build -o skills-sync .
+SKILLS_SYNC_BIN="$PWD/skills-sync" cargo nextest run --locked \\
+  --manifest-path tests/reference/rust/Cargo.toml
+```
+
+The differential suite requires Python 3.11+ and Git. It covers lifecycle transitions, global and explicit prefixes, Git pinning and updates, ordered patches, Markdown protection and Unicode boundaries, exact patch generation, invalid inputs, ownership, interrupted transactions, and cross-version locked replay. CI runs the native and differential suites on Linux and macOS.

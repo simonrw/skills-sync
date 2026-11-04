@@ -1,2 +1,3 @@
 [tools]
+go = "latest"
 "github:nextest-rs/nextest" = "latest"
