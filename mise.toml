@@ -1,3 +1,4 @@
 [tools]
 go = "latest"
+goreleaser = "2"
 "github:nextest-rs/nextest" = "latest"

@@ -11,6 +11,8 @@ import (
 //go:embed examples/skills.toml
 var exampleManifest []byte
 
+var version = "0.1.0"
+
 type usageError struct{ message string }
 
 func (e usageError) Error() string { return e.message }
@@ -83,7 +85,7 @@ func run(args []string) error {
 	command := remaining[0]
 	args = remaining[1:]
 	if command == "--version" || command == "-V" {
-		fmt.Println("skills-sync 0.1.0")
+		fmt.Println("skills-sync " + version)
 		return nil
 	}
 	if command == "--help" || command == "-h" {

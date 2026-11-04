@@ -4,7 +4,11 @@ A declarative Go CLI for managing a chosen set of agent skills. Declare sources 
 
 ## Install
 
-Requires Go 1.23+ and Git on PATH. Linux and macOS are supported; Windows is not supported.
+Linux and macOS are supported; Windows is not supported. Git must be on PATH.
+
+Download an archive for your OS and architecture (amd64 or arm64) from [GitHub Releases](https://github.com/simonrw/skills-sync/releases), verify it against `checksums.txt`, and extract `skills-sync` to a directory on PATH. Release binaries do not require Go.
+
+To build from source, install Go 1.23+ and run:
 
 ```sh
 go install .
@@ -236,6 +240,21 @@ go build .
 ```
 
 The integration tests build and invoke the CLI in temporary directories, using real local Git repositories without network access. Normal development requires no Rust toolchain.
+
+### Releases
+
+Every push to `main` that passes the Go tests, Rust compatibility checks, and packaging job publishes a GitHub prerelease using GoReleaser. Tags use `v0.0.0-main.<run-number>.<run-attempt>`, so reruns get distinct releases without moving existing tags. Each release points to the tested commit and includes Linux and macOS archives for amd64 and arm64, plus SHA-256 checksums. These development builds are not marked as the latest stable release.
+
+Publishing uses the workflow's built-in `GITHUB_TOKEN` with `contents: write`; no additional secret is needed. GitHub creates the locally prepared tag when GoReleaser creates the release.
+
+Install the development tools with `mise install`, then validate packaging locally without publishing:
+
+```sh
+goreleaser check
+goreleaser release --snapshot --clean
+```
+
+Artifacts are written to `dist/`. Release binaries report their build version with `skills-sync --version`; ordinary Go builds retain the compatibility version `0.1.0`.
 
 ### Rust compatibility oracle
 

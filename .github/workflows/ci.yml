@@ -19,6 +19,44 @@ jobs:
       - run: go test -race ./...
       - run: go build .
 
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, parity, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GORELEASER_CURRENT_TAG: v0.0.0-main.${{ github.run_number }}.${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Tag the tested commit locally
+        run: git -c tag.gpgsign=false tag "$GORELEASER_CURRENT_TAG" "$GITHUB_SHA"
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   parity:
     strategy:
       matrix:

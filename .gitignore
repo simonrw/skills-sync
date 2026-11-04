@@ -1,4 +1,5 @@
 /skills-sync
+/dist/
 /target
 /tests/reference/rust/target
 /tests/__pycache__
