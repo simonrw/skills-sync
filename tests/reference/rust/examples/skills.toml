@@ -1,5 +1,6 @@
 version = 1
 targets = [".agents/skills"]
+# commands = ["rex skill setup --agent pi --force"]
 
 [sources.anthropic]
 repo = "https://github.com/anthropics/skills.git"
