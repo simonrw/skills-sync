@@ -398,16 +398,18 @@ func generateFile(tree, file string, editedBytes []byte) ([]byte, PatchReport, e
 	return data, report, nil
 }
 func checkInputs(c *Loaded, lockBytes []byte, inputs PatchInputs) error {
-	manifest, err := os.ReadFile(c.ManifestPath)
-	if err != nil {
-		return err
+	expected := map[string][]byte{c.Lock: lockBytes}
+	for _, layer := range c.Layers {
+		expected[layer.Path] = layer.Data
 	}
-	lock, err := os.ReadFile(c.Lock)
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(manifest, c.ManifestBytes) || !bytes.Equal(lock, lockBytes) {
-		return fmt.Errorf("manifest or lockfile changed during generation; no output written")
+	for _, path := range sortedKeys(expected) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(data, expected[path]) {
+			return fmt.Errorf("manifest or lockfile changed during generation; no output written")
+		}
 	}
 	for _, id := range sortedKeys(inputs) {
 		for _, input := range inputs[id] {
@@ -434,7 +436,7 @@ func validateOutput(c *Loaded, cwd, output string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, path := range []string{c.ManifestPath, c.Lock} {
+	for _, path := range c.inputFiles() {
 		reserved, err := resolvedPath(cwd, path)
 		if err != nil {
 			return "", err

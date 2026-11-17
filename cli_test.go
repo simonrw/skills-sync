@@ -45,11 +45,11 @@ func newFixture(t *testing.T) *fixture {
 	env := []string{}
 	for _, v := range os.Environ() {
 		key, _, _ := strings.Cut(v, "=")
-		if key != "HOME" && key != "XDG_STATE_HOME" && key != "GIT_CONFIG_GLOBAL" && key != "GIT_CONFIG_NOSYSTEM" {
+		if key != "HOME" && key != "XDG_STATE_HOME" && key != "XDG_CONFIG_HOME" && key != "GIT_CONFIG_GLOBAL" && key != "GIT_CONFIG_NOSYSTEM" {
 			env = append(env, v)
 		}
 	}
-	env = append(env, "HOME="+filepath.Join(root, "home"), "XDG_STATE_HOME="+filepath.Join(root, "state"), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	env = append(env, "HOME="+filepath.Join(root, "home"), "XDG_STATE_HOME="+filepath.Join(root, "state"), "XDG_CONFIG_HOME="+filepath.Join(root, "config"), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 	return &fixture{t, root, env}
 }
 func (f *fixture) write(path, text string) {
