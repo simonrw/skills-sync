@@ -31,7 +31,7 @@ class Parity(unittest.TestCase):
                 root.mkdir()
                 self.root = root
                 self.binary = binary
-                self.env = dict(os.environ, HOME=str(root / "home"), XDG_STATE_HOME=str(root / "state"), GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="Test", GIT_AUTHOR_EMAIL="test@example.com", GIT_COMMITTER_NAME="Test", GIT_COMMITTER_EMAIL="test@example.com", GIT_AUTHOR_DATE="2025-01-01T00:00:00Z", GIT_COMMITTER_DATE="2025-01-01T00:00:00Z")
+                self.env = dict(os.environ, HOME=str(root / "home"), XDG_STATE_HOME=str(root / "state"), XDG_CONFIG_HOME=str(root / "config"), GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="Test", GIT_AUTHOR_EMAIL="test@example.com", GIT_COMMITTER_NAME="Test", GIT_COMMITTER_EMAIL="test@example.com", GIT_AUTHOR_DATE="2025-01-01T00:00:00Z", GIT_COMMITTER_DATE="2025-01-01T00:00:00Z")
                 self.steps = []
                 scenario()
                 observations.append(self.steps)

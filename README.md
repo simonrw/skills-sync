@@ -53,6 +53,26 @@ directory, regardless of your working directory. Absolute paths and `~/` are
 accepted. Git refs may be branches, tags, or full commit hashes. If `ref` is
 omitted, updates resolve the upstream default branch.
 
+### Layered manifests
+
+Settings can come from up to three files, lowest precedence first:
+
+1. The global manifest, `$XDG_CONFIG_HOME/skills-sync/skills.toml` (default `~/.config/skills-sync/skills.toml`)
+2. The project manifest, `skills.toml` or the `--manifest` path
+3. The local override beside it, `skills.local.toml` (for `--manifest my-skills.toml`, `my-skills.local.toml`)
+
+Missing files are skipped. Top-level keys (`version`, `prefix`, `targets`, `commands`) in a later file replace earlier values. Each `[sources.<id>]` table is added, or replaces an earlier table with the same ID as a whole. Fields are not merged within a source. Override files need no `version` or `[sources]` of their own, as long as the combined result is valid.
+
+For example, to install your global skills somewhere else inside one project, the project needs only a `skills.local.toml`:
+
+```toml
+targets = ["~/work/.claude-work/skills"]
+```
+
+The lockfile and default prefix belong to the project manifest path, even when only `skills.local.toml` exists. Outside any project, `skills-sync sync` uses the global manifest alone, with its lockfile beside it. Relative paths resolve from the directory of the file that declares them.
+
+The lockfile records the combined manifest. Changing the global manifest therefore changes the fingerprint of every project that inherits from it, so run ordinary sync before using `--locked` again. Keep `skills.local.toml` out of version control when it holds machine-specific settings.
+
 ### Skill selection
 
 A skill is a directory containing a regular `SKILL.md` file. Discovery searches
@@ -272,7 +292,8 @@ SKILLS_SYNC_RUST="$reference_target/debug/skills-sync" go test -count=1 ./...
 
 # Run the original integration tests against the Go executable.
 go build -o skills-sync .
-SKILLS_SYNC_BIN="$PWD/skills-sync" cargo nextest run --locked \\
+# Isolate the run from any real global manifest.
+XDG_CONFIG_HOME=$(mktemp -d) SKILLS_SYNC_BIN="$PWD/skills-sync" cargo nextest run --locked \\
   --manifest-path tests/reference/rust/Cargo.toml
 ```
 
