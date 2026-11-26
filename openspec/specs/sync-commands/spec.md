@@ -87,16 +87,12 @@ A command launch failure or unsuccessful termination SHALL stop subsequent comma
 - **WHEN** a subsequent sync succeeds at reconciliation after an earlier command failure
 - **THEN** command execution starts again with the first declared command
 
-### Requirement: Lock compatibility
-Nonempty command declarations, including their order and exact strings, SHALL contribute to the manifest fingerprint. Omitted and empty command arrays SHALL preserve the fingerprint of an otherwise identical legacy manifest. Locked sync MUST reject command changes before executing commands.
-
-#### Scenario: Existing lock without commands
-- **WHEN** an otherwise unchanged legacy manifest is used with its existing lockfile, with commands omitted or empty
-- **THEN** locked sync accepts that lockfile
+### Requirement: Lock independence
+Command declarations SHALL NOT contribute to the manifest fingerprint, so changing commands never invalidates a lockfile.
 
 #### Scenario: Commands changed after locking
 - **WHEN** a command is added, removed, reordered, or edited after the manifest was locked
-- **THEN** locked sync fails its manifest check and executes no commands
+- **THEN** locked sync accepts the lockfile, leaves it unchanged, and executes the current commands
 
 ### Requirement: External ownership and trust
 Command-created files SHALL remain outside skills-sync's ownership, installed-skill listing, and automatic removal. Documentation SHALL explain that commands are trusted arbitrary code with the user's permissions, their effects are not transactional or pinned by the lockfile, and repeated execution requires repeat-safe commands.

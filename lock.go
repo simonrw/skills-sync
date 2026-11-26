@@ -64,7 +64,10 @@ func fingerprint(c *Loaded, inputs PatchInputs) (string, error) {
 			hashes[id] = append(hashes[id], p.Info)
 		}
 	}
-	return jsonHash([]any{c.Manifest, hashes})
+
+	// Prefix, targets and commands are often machine-specific and do not
+	// decide what gets locked.
+	return jsonHash([]any{c.Manifest.Sources, hashes})
 }
 func readLock(c *Loaded) (*LockFile, error) {
 	data, err := readOptional(c.Lock)

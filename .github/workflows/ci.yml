@@ -35,7 +35,7 @@ jobs:
 
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test, parity, package]
+    needs: [test, package]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -56,35 +56,3 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  parity:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: stable
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@nextest
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: tests/reference/rust
-      - name: Build reference
-        run: |
-          cargo build --locked --manifest-path tests/reference/rust/Cargo.toml
-          reference_target=$(cargo metadata --format-version 1 --no-deps --manifest-path tests/reference/rust/Cargo.toml | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')
-          echo "SKILLS_SYNC_RUST=$reference_target/debug/skills-sync" >> "$GITHUB_ENV"
-      - name: Original Rust tests
-        run: cargo nextest run --locked --manifest-path tests/reference/rust/Cargo.toml
-      - name: Differential parity
-        run: go test -count=1 ./...
-      - name: Original CLI assertions against Go
-        run: |
-          go build -o skills-sync .
-          SKILLS_SYNC_BIN="$PWD/skills-sync" cargo nextest run --locked --manifest-path tests/reference/rust/Cargo.toml

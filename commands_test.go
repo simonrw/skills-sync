@@ -7,17 +7,23 @@ import (
 	"testing"
 )
 
-func TestEmptyCommandsPreserveLegacyLock(t *testing.T) {
+func TestSettingsKeepLockfileCurrent(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	f.manifest("[sources]")
+	f.write("local/a/SKILL.md", "a\n")
+	f.manifest("[sources.x]\npath = 'local'")
 	f.cli(true, "sync", "--offline")
 	lock := f.read("skills.lock")
 
-	f.manifest("commands = []\n[sources]")
+	f.write("skills.toml", "version = 1\nprefix = 'other-store'\ntargets = ['target-c']\ncommands = ['touch ran']\n[sources.x]\npath = 'local'\n")
 	f.cli(true, "sync", "--locked", "--offline")
+
+	if f.read("target-c/a/SKILL.md") != "a\n" {
+		t.Fatal("new target not installed")
+	}
+	f.read("ran")
 	if f.read("skills.lock") != lock {
-		t.Fatal("empty commands changed the legacy lockfile")
+		t.Fatal("settings changed the lockfile")
 	}
 }
 
@@ -53,9 +59,9 @@ func TestCommandsLifecycle(t *testing.T) {
 	}
 
 	f.manifest(strings.Replace(commands, "printf b", "printf c", 1) + source)
-	f.cli(false, "sync", "--locked")
-	if f.read("runs") != "ababab" || f.read("skills.lock") != lock {
-		t.Fatal("locked command edit changed the installation or ran commands")
+	f.cli(true, "sync", "--locked", "--offline")
+	if f.read("runs") != "abababac" || f.read("skills.lock") != lock {
+		t.Fatal("locked sync did not run edited commands with the same lockfile")
 	}
 }
 

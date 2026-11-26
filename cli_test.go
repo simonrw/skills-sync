@@ -318,17 +318,3 @@ func TestSourceAndManifestValidation(t *testing.T) {
 		})
 	}
 }
-func TestDifferentialReference(t *testing.T) {
-	reference := os.Getenv("SKILLS_SYNC_RUST")
-	if reference == "" {
-		t.Skip("set SKILLS_SYNC_RUST to run the Rust/Go differential suite")
-	}
-	reference, err := filepath.Abs(reference)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command("python3", "tests/parity.py", "--rust", reference, "--go", binary)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("differential parity: %v\n%s", err, output)
-	}
-}

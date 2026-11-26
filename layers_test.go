@@ -68,3 +68,14 @@ func TestGlobalManifestAlone(t *testing.T) {
 		t.Fatal("lockfile written beside missing project manifest")
 	}
 }
+
+func TestOverrideSourceInvalidatesLockfile(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.write("local/a/SKILL.md", "a\n")
+	f.manifest("[sources.x]\npath = 'local'")
+	f.cli(true, "sync")
+
+	f.write("skills.local.toml", "[sources.x]\npath = 'local'\nskills = ['a']\n")
+	f.cli(false, "sync", "--locked", "--offline")
+}
