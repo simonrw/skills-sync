@@ -71,7 +71,7 @@ targets = ["~/work/.claude-work/skills"]
 
 The lockfile and default prefix belong to the project manifest path, even when only `skills.local.toml` exists. Outside any project, `skills-sync sync` uses the global manifest alone, with its lockfile beside it. Relative paths resolve from the directory of the file that declares them.
 
-The lockfile records the combined manifest. Changing the global manifest therefore changes the fingerprint of every project that inherits from it, so run ordinary sync before using `--locked` again. Keep `skills.local.toml` out of version control when it holds machine-specific settings.
+Sources from every layer are locked, so adding or changing a source in any layer changes the fingerprint of every project that inherits it; run ordinary sync before using `--locked` again. Other settings never affect the lockfile, so machines can use different targets, prefixes, or commands with the same committed lockfile. Keep `skills.local.toml` out of version control when it holds machine-specific settings.
 
 ### Skill selection
 
@@ -112,7 +112,7 @@ commands = ["rex skill setup --agent pi --force"]
 
 Commands can accompany Git or local sources. For commands alone, keep at least one target and an empty `[sources]` table as above. Omit `commands` or use `commands = []` to disable execution. Entries must be nonblank strings without NUL characters.
 
-Command strings and their order contribute to the manifest fingerprint. After changing them, run ordinary sync before using `--locked`. Existing lockfiles remain valid when commands are omitted or empty.
+Commands do not affect the lockfile, so changing them keeps `--locked` working.
 
 Sync and update run all commands in declaration order after committing managed links, state, and the lockfile. Commands run even with zero link changes, with `--locked` or `--offline`, and when update selects only some sources. Validation or installation failures prevent command execution. List, init, and patch generation never execute them. Dry runs print the commands without executing them.
 
@@ -131,7 +131,7 @@ Command-created files are not tracked, shown by `skills-sync list`, or automatic
 ```sh
 skills-sync sync                  # Reconcile, reusing locked Git commits
 skills-sync sync --dry-run        # Preview link changes and custom commands
-skills-sync sync --locked         # Fail if manifest, patches, local trees or selections changed
+skills-sync sync --locked         # Fail if sources, patches, local trees or selections changed
 skills-sync sync --locked --offline
 skills-sync update               # Advance every Git source and sync
 skills-sync update team           # Advance only team; keep other locked Git revisions
@@ -145,7 +145,8 @@ The lockfile sits beside the manifest with its extension changed to `.lock`.
 For each source it records the upstream, requested ref, exact commit or local
 content hash, ordered patch hashes, selected paths/install names, and patched tree
 hash. Its ordering is stable and it has no timestamps. `--locked` also checks a
-hash of the parsed manifest and patch contents, and leaves lockfile bytes intact.
+hash of the parsed manifest sources and patch contents, and leaves lockfile bytes
+intact. Prefix, targets, and commands are not part of that hash.
 
 Changing only selectors, renames, or patches reuses the existing Git commit.
 Changing a repository or its requested ref resolves a new commit during normal
@@ -229,7 +230,7 @@ skills-sync sync --dry-run
 skills-sync sync
 ```
 
-Generation requires a current lock and reconstructs its already-patched baseline offline. It prints the revision, existing patch hashes, document hash, and operation scopes. Edited and output paths resolve from your working directory. Document paths are source-relative. Generation may populate snapshots but never installs, updates the lock or manifest, fetches, or recovers an interrupted transaction. Output must be new and outside the prefix and installation targets. Create its parent directory first. Manifest checks use the same parsed-manifest fingerprint as locked sync, with raw input stability checked during generation.
+Generation requires a current lock and reconstructs its already-patched baseline offline. It prints the revision, existing patch hashes, document hash, and operation scopes. Edited and output paths resolve from your working directory. Document paths are source-relative. Generation may populate snapshots but never installs, updates the lock or manifest, fetches, or recovers an interrupted transaction. Output must be new and outside the prefix and installation targets. Create its parent directory first. Manifest checks use the same fingerprint as locked sync, with raw input stability checked during generation.
 
 Only `replace_text` and `insert_section` are supported. Sentence operations, regex operations, and unknown fields fail. Generation emits exact-count literal edits and verifies serialized replay byte-for-byte. Ambiguous edits, formatting changes, and changes to protected content fail with Git-patch guidance. Prose whitespace can normalize during application. Headings and protected syntax never become replacement targets. Phrases cannot cross formatting delimiters. Paragraphs and list items containing inline HTML are entirely protected. Markdown documents and skill-patch files are limited to 1 MiB, with at most 256 operations. Diff discovery is bounded to 1,048,576 scalar-LCS cells after trimming unchanged ends. Larger edits may require a Git patch.
 
